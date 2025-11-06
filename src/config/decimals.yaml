@@ -1,0 +1,5 @@
+fluid_gap: 0
+rcutLJ11: 5
+rcutLJ12: 5
+rcutLJ22: 5
+rho_fluid: 1

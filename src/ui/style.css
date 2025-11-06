@@ -1,0 +1,22 @@
+QMainWindow{
+    background-color: #dee9ff;
+}
+
+QLabel, QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox, QPushButton{
+    font-family: Verdana, sans-serif;
+    font-size: 16px;
+}
+
+#simulation_name, #job_name{
+    border: 2px solid #88C0D0;
+    border-radius: 5px;
+    padding: 3px;
+}
+
+
+QComboBox::item{
+    border: 2px solid #63c4da;
+    border-radius: 5px;
+    background-color: #ace3f0;
+}
+

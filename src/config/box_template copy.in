@@ -1,0 +1,150 @@
+# NVT: WCA, Slit
+
+# Variables
+variable T           equal     1.0            # Temperature 
+variable NT          equal     1              # Rescaling Frequency
+variable Twindow     equal     0.1            # Rescaling Window
+variable Tfraction   equal     1.0            # Rescaling Fraction
+variable coupling    equal   100.0            # Coupling Constant (time units)
+
+variable mLJ         equal     1.0            # Particle Mass
+variable mW          equal     1.0            # Wall Mass
+
+variable eps11       equal     1.0            # f-f LJ epsilon 
+variable sig11       equal     1.0            # f-f LJ sigma
+variable eps22       equal     0.0            # W-W LJ epsilon 
+variable sig22       equal     1.2            # W-W LJ sigma
+variable eps12       equal     1.0            # f-W LJ epsilon 
+variable sig12       equal     1.1            # f-W LJ sigma
+
+variable rcutLJ11    equal     1.1224620483   # f-f LJ Cut-off
+variable rcutLJ22    equal     1.3469544580   # W-W LJ Cut-off
+variable rcutLJ12    equal     1.2347082531   # f-W LJ Cut-off
+
+variable dt0         equal     1.0e-4         # Time Step (Relax)
+variable dt          equal     2.0e-3         # Time Step
+variable binLJ       equal     0.3            # LJ bin
+variable rcut        equal     2.5            # LJ Cut-off
+
+variable seed        equal     58531416       # Random # Seed
+
+variable wBin        equal     0.25           # Bin Width
+
+variable nthermo     equal     50000          # Thermo Output
+
+variable ndump       equal      5000          # dump Output
+variable ndump1      equal       500
+
+variable nrelax      equal    100000          # relax Steps
+variable neql        equal    200000          # eql Steps
+variable nrun        equal   5000000          # run Steps
+
+variable nrestart     equal   500000          # Restart File
+
+variable navg1       equal       100
+variable navg2       equal       100
+variable navg3       equal     10000          # navg1.navg2 <= navg3
+
+# General
+units            lj
+atom_style       atomic
+dimension        3
+newton           on
+boundary         p p f
+
+# Style
+pair_style       lj/cut ${rcut}
+pair_modify      shift yes
+
+# Atom Definition
+read_data        dataWCA.slit  
+
+mass		     1 ${mLJ}
+mass		     2 ${mW}
+
+pair_coeff	     1 1 ${eps11} ${sig11} ${rcutLJ11}
+pair_coeff	     2 2 ${eps22} ${sig22} ${rcutLJ22}
+pair_coeff	     1 2 ${eps12} ${sig12} ${rcutLJ12}
+
+# Settings
+group 	         fluid  type 1
+group 	         wall   type 2
+
+neighbor	     ${binLJ} bin
+neigh_modify	 delay 0 every 1 check yes
+neigh_modify     exclude group wall wall
+
+run_style        verlet
+
+compute          Tfluid fluid temp
+
+# Output
+thermo_style     custom step c_Tfluid pe press pxx pyy pzz  
+thermo_modify    flush yes lost warn
+thermo           ${nthermo}
+
+#0 Rescaling NVT
+velocity         fluid create $T ${seed} mom yes dist gaussian
+
+fix              1 fluid nve
+fix              2 fluid temp/rescale ${NT} $T $T ${Twindow} ${Tfraction}
+fix_modify       2 temp Tfluid
+
+timestep         ${dt0}
+
+run              ${nrelax}
+
+unfix            1
+unfix            2
+
+write_restart    restart.WCA
+
+#1 Berendsen NVT
+velocity         fluid create $T ${seed} mom yes dist gaussian
+
+fix              1 fluid nve
+fix              2 fluid temp/berendsen $T $T ${coupling}
+fix_modify       2 temp Tfluid
+
+timestep         ${dt}
+
+run              ${neql}
+
+unfix            1
+unfix            2
+
+write_restart    restart.WCA
+
+reset_timestep  0
+
+# Dump Atom Positions for Visualization
+dump             dumpall all   xyz ${ndump} dumpWCA.xyz
+dump_modify      dumpall element O C
+
+# Dump Fluid Positions for Postprocessing
+dump		     dumpfluid fluid custom ${ndump1} dumpWCA.cs id type x y z
+
+# Density Profiles
+compute          binF   fluid  chunk/atom  bin/1d  z center ${wBin} units box
+fix              densF  fluid  ave/chunk   ${navg1} ${navg2} ${navg3} binF  density/number ave running file densF.dat
+
+restart          ${nrestart} run.restart
+
+#2 Nose-Hoover NVT
+velocity         fluid scale $T
+
+fix              1 fluid nvt temp $T $T ${coupling}
+fix_modify       1 temp Tfluid
+
+timestep         ${dt}
+
+run              ${nrun}
+
+unfix            1
+
+unfix            densF
+
+# Restart File
+write_restart    restart.WCA
+
+# DONE
