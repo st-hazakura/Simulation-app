@@ -12,6 +12,8 @@ import sys
 from path import UI, CONFIG, SCRIPTS, ENV_FILE, in_root
 from pathlib import Path
 
+from pbs_parser import (parse_node_load_from_nodes,parse_node_load_from_jobs,)
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -22,7 +24,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.runall_path = SCRIPTS / "run_all.bat"
         
         load_dotenv(dotenv_path=ENV_FILE)
-        self.user_name = os.getenv("CLUSTER_USERNAME")              # str | None
+        self.user_name = os.getenv("CLUSTER_USERNAME")              
         self.host = os.getenv("CLUSTER_HOST")
         self.key_path = os.getenv("CLUSTER_KEY_PATH")
         self.results_dir = os.getenv("LOCAL_RESULTS_DIR")
@@ -176,119 +178,26 @@ class MainWindow(QtWidgets.QMainWindow):
     def get_node_load(self, node):
         """Zkusí zjistit zatížení nejdřív ze staré tabulky (nody v 1. sloupci), pokud ji nenajde, přepne se na nový formát tabulky jobs."""
         try:
-            url = "https://pbsweb.enputron.ujep.cz/statuspbs/nodes"
+            nodes_url = "https://pbsweb.enputron.ujep.cz/statuspbs/nodes"
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                             "AppleWebKit/537.36 (KHTML, like Gecko) "
                             "Chrome/122.0.0.0 Safari/537.36"
             }
-            r = requests.get(url, headers=headers)
-            soup = BeautifulSoup(r.text, 'html.parser')
+            r_nodes = requests.get(nodes_url, headers=headers)
+            
+            text = parse_node_load_from_nodes(r_nodes.text, node)
+            if text is not None:
+                return text
+            
+            jobs_url = "https://pbsweb.enputron.ujep.cz/statuspbs/jobs"
+            r_jobs = requests.get(jobs_url, headers=headers)
 
-            table = soup.find("table", {"class": "status"})
-            if table is None:
-                return self._get_load_from_jobs_table(node)
-
-            rows = table.find_all("tr")
-
-            for row in rows:
-                cols = row.find_all("td")
-                if len(cols) < 5:
-                    continue
-                name = cols[0].text.strip()
-                if name == node:
-                    cpu_usage = cols[2].text.strip()
-                    return f"Zatížení CPU: {cpu_usage}"
+            text = parse_node_load_from_jobs(r_jobs.text, node)
+            if text is not None:
+                return text            
 
             return "Informace nenalezena"
-        except Exception as e:
-            return f"Chyba načítání: {e}"
-
-
-    def _get_load_from_jobs_table(self, node):
-        """
-        Парсим страницу /jobs и оцениваем загрузку выбранного узла:
-        - сколько running-job'ов на этой ноде
-        - примерное количество занятых CPU
-        - примерное количество занятой памяти (GB)
-        """
-        try:
-            url = "https://pbsweb.enputron.ujep.cz/statuspbs/jobs" 
-            headers = {
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/122.0.0.0 Safari/537.36"
-                )
-            }
-            r = requests.get(url, headers=headers, timeout=10)
-            r.raise_for_status()
-
-            soup = BeautifulSoup(r.text, "html.parser")
-            table = soup.find("table", {"class": "status"})
-            if table is None:
-                return "Tabulka jobů nenalezena"
-
-            jobs_on_node = 0
-            cpus_on_node = 0.0
-            mem_on_node = 0.0 
-
-            # пропускаем строку с <th> (заголовок)
-            for row in table.find_all("tr")[1:]:
-                cols = row.find_all("td")
-                if len(cols) < 14:
-                    continue
-
-                job_state = cols[12].get_text(strip=True)
-                if job_state.lower() != "running":
-                    continue
-
-                exec_hosts = cols[13].get_text(strip=True)
-                if node not in exec_hosts:
-                    continue
-
-                jobs_on_node += 1
-
-                # CPU: колонка формат "72 |72"
-                cpu_text = cols[4].get_text(strip=True)
-                used_cpus = None
-                if cpu_text:
-                    # берём первое число до первой вертикальной черты
-                    first_part = cpu_text.split("|")[0].strip()
-                    try:
-                        used_cpus = int(first_part)
-                    except ValueError:
-                        used_cpus = None
-
-                #  Memory(GB): "8 |588|100" 
-                mem_text = cols[6].get_text(strip=True)
-                used_mem = 0.0
-                if mem_text:
-                    mem_parts = [p.strip() for p in mem_text.split("|") if p.strip()]
-                    if mem_parts:
-                        try:
-                            used_mem = float(mem_parts[0])
-                        except ValueError:
-                            used_mem = 0.0
-
-                # Exec Hosts: "node10[0] node10[1]" – делим ресурсы поровну между всеми хостами
-                hosts = [h for h in exec_hosts.split() if h.strip()]
-                n_hosts = max(len(hosts), 1)
-
-                if used_cpus is not None:
-                    cpus_on_node += used_cpus / n_hosts
-                mem_on_node += used_mem / n_hosts
-
-            if jobs_on_node == 0:
-                return "Nic neběží."
-
-            cpus_on_node_int = int(round(cpus_on_node))
-            mem_on_node_rounded = round(mem_on_node, 1)
-
-            return (
-                f"Zatížení: {jobs_on_node} jobů, "
-                f"{cpus_on_node_int} CPU, {mem_on_node_rounded} GB RAM"
-            )
 
         except Exception as e:
             return f"Chyba načítání: {e}"
