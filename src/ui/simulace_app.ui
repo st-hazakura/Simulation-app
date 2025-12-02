@@ -207,7 +207,7 @@
      <item>
       <widget class="QLineEdit" name="queue">
        <property name="sizePolicy">
-        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+        <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
          <horstretch>0</horstretch>
          <verstretch>0</verstretch>
         </sizepolicy>
@@ -219,15 +219,34 @@
      </item>
      <item>
       <widget class="QLabel" name="loadLabel">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
        <property name="text">
         <string>Zatizenost</string>
        </property>
       </widget>
      </item>
      <item>
+      <widget class="QLabel" name="maxTimeLabel">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="text">
+        <string>Max doba</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QLabel" name="label_18">
        <property name="sizePolicy">
-        <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
          <horstretch>0</horstretch>
          <verstretch>0</verstretch>
         </sizepolicy>
@@ -404,7 +423,7 @@
      <x>0</x>
      <y>0</y>
      <width>927</width>
-     <height>26</height>
+     <height>22</height>
     </rect>
    </property>
   </widget>

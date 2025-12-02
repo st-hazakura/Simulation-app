@@ -48,7 +48,12 @@ class MainWindow(QtWidgets.QMainWindow):
             "node29": "enp3", "node30": "enp3", "node31": "enp3",
             "node32": "enp3", "node33": "enp3", "node34": "enp3"
         }
-        
+
+        self.queue_to_max_walltime = {
+            "enp5": "20 dnů",
+            "enp3": "3 dny",
+        }
+
         self.nodes.addItems(self.node_to_queue.keys())
         self.nodes.currentTextChanged.connect(self.update_info)
         self.saveButton.clicked.connect(self.save_yaml)
@@ -161,10 +166,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         usage = self.get_node_load(node)
         self.loadLabel.setText(usage)
-        
+
+        max_time = self.queue_to_max_walltime.get(queue)
+        if max_time:
+            self.maxTimeLabel.setText(max_time)
+        else:
+            self.maxTimeLabel.setText("neznámý limit")
         
     def get_node_load(self, node):
-        """ Parsing webpage cluster, and take args form tabel, and show zatizenost node """
+        """Zkusí zjistit zatížení nejdřív ze staré tabulky (nody v 1. sloupci), pokud ji nenajde, přepne se na nový formát tabulky jobs."""
         try:
             url = "https://pbsweb.enputron.ujep.cz/statuspbs/nodes"
             headers = {
@@ -177,7 +187,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
             table = soup.find("table", {"class": "status"})
             if table is None:
-                return "Tabulka nenalezena"
+                return self._get_load_from_jobs_table(node)
 
             rows = table.find_all("tr")
 
@@ -191,6 +201,95 @@ class MainWindow(QtWidgets.QMainWindow):
                     return f"Zatížení CPU: {cpu_usage}"
 
             return "Informace nenalezena"
+        except Exception as e:
+            return f"Chyba načítání: {e}"
+
+
+    def _get_load_from_jobs_table(self, node):
+        """
+        Парсим страницу /jobs и оцениваем загрузку выбранного узла:
+        - сколько running-job'ов на этой ноде
+        - примерное количество занятых CPU
+        - примерное количество занятой памяти (GB)
+        """
+        try:
+            url = "https://pbsweb.enputron.ujep.cz/statuspbs/jobs" 
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/122.0.0.0 Safari/537.36"
+                )
+            }
+            r = requests.get(url, headers=headers, timeout=10)
+            r.raise_for_status()
+
+            soup = BeautifulSoup(r.text, "html.parser")
+            table = soup.find("table", {"class": "status"})
+            if table is None:
+                return "Tabulka jobů nenalezena"
+
+            jobs_on_node = 0
+            cpus_on_node = 0.0
+            mem_on_node = 0.0 
+
+            # пропускаем строку с <th> (заголовок)
+            for row in table.find_all("tr")[1:]:
+                cols = row.find_all("td")
+                if len(cols) < 14:
+                    continue
+
+                job_state = cols[12].get_text(strip=True)
+                if job_state.lower() != "running":
+                    continue
+
+                exec_hosts = cols[13].get_text(strip=True)
+                if node not in exec_hosts:
+                    continue
+
+                jobs_on_node += 1
+
+                # CPU: колонка формат "72 |72"
+                cpu_text = cols[4].get_text(strip=True)
+                used_cpus = None
+                if cpu_text:
+                    # берём первое число до первой вертикальной черты
+                    first_part = cpu_text.split("|")[0].strip()
+                    try:
+                        used_cpus = int(first_part)
+                    except ValueError:
+                        used_cpus = None
+
+                #  Memory(GB): "8 |588|100" 
+                mem_text = cols[6].get_text(strip=True)
+                used_mem = 0.0
+                if mem_text:
+                    mem_parts = [p.strip() for p in mem_text.split("|") if p.strip()]
+                    if mem_parts:
+                        try:
+                            used_mem = float(mem_parts[0])
+                        except ValueError:
+                            used_mem = 0.0
+
+                # Exec Hosts: "node10[0] node10[1]" – делим ресурсы поровну между всеми хостами
+                hosts = [h for h in exec_hosts.split() if h.strip()]
+                n_hosts = max(len(hosts), 1)
+
+                if used_cpus is not None:
+                    cpus_on_node += used_cpus / n_hosts
+                mem_on_node += used_mem / n_hosts
+
+            if jobs_on_node == 0:
+                return "Nic neběží."
+
+            cpus_on_node_int = int(round(cpus_on_node))
+            mem_on_node_rounded = round(mem_on_node, 1)
+
+            return (
+                f"Zatížení: {jobs_on_node} jobů, "
+                f"{cpus_on_node_int} CPU, {mem_on_node_rounded} GB RAM"
+            )
+
         except Exception as e:
             return f"Chyba načítání: {e}"
 
