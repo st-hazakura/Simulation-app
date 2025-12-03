@@ -204,3 +204,17 @@ def check_and_copy_density_with_restart(key_path: str, user_name: str, host: str
             unfinished.append((folder, last_step, nrun))
 
     return unfinished, None
+
+
+def restart_simulation_on_cluster(key_path: str, user_name: str, host: str, cluster_sim_path: str,
+                                  sim_name: str, node: str, queue: str, ppn: int, mem_gb: int,
+                                  last_step: int | None, expected_nrun: int | None):
+    """
+    Здесь потом:
+      - на основе last_step / expected_nrun решишь:
+          * restart vs полный rerun;
+      - поправишь run.sh (nodes, ppn, mem, walltime);
+      - запустишь submit_job.sh.
+    Пока можно просто вернуть None или сделать простой вариант.
+    """
+    return None

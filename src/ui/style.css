@@ -41,3 +41,8 @@ QTableWidget::item {
     border: 1px solid #444;   /* заметные линии сетки */
     padding: 2px 4px;
 }
+
+QTableView::item:selected,
+QTableWidget::item:selected {
+    color: black;
+}

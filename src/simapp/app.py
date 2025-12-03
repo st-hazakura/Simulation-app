@@ -13,7 +13,9 @@ from path import UI, CONFIG, SCRIPTS, ENV_FILE, in_root
 from pathlib import Path
 
 from pages_ui.unfinished_simulations_dialog import UnfinishedSimulationsDialog
-from pbs_parser import (parse_node_load_from_nodes,parse_node_load_from_jobs,)
+from pages_ui.node_selection_dialog import NodeSelectionDialog
+
+from pbs_parser import (parse_node_load_from_nodes,parse_node_load_from_jobs)
 import cluster_service
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -174,7 +176,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.maxTimeLabel.setText("neznámý limit")
         
-    def get_node_load(self, node):
+    def get_node_load(self, node) -> str:
         """Zkusí zjistit zatížení nejdřív ze staré tabulky (nody v 1. sloupci), pokud ji nenajde, přepne se na nový formát tabulky jobs."""
         try:
             nodes_url = "https://pbsweb.enputron.ujep.cz/statuspbs/nodes"
@@ -272,8 +274,8 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         1) Находит все папки с симуляциями на кластере.
         2) Для каждой читает nrun из box.in и смотрит на файлы run.restart.*.
-        3) Если последний restart >= nrun – копирует densF.dat локально.
-        4) Если нет – собирает список «незавершённых» симуляций и показывает их в таблице.
+        3) Если последний restart >= nrun - копирует densF.dat локально.
+        4) Если нет - собирает список «незавершённых» симуляций и показывает их в таблице.
         """
 
         incomplete, error = cluster_service.check_and_copy_density_with_restart( key_path=self.key_path, user_name=self.user_name,
@@ -291,7 +293,73 @@ class MainWindow(QtWidgets.QMainWindow):
 
         dlg = UnfinishedSimulationsDialog(self)
         dlg.set_data(incomplete)
-        dlg.exec_()
+        result = dlg.exec_()
+        
+        if result == QtWidgets.QDialog.Accepted and dlg.selected_folder:
+            self.start_restart_for_simulation( dlg.selected_folder, dlg.selected_last_step, 
+                                               dlg.selected_expected_nrun)
+            
+            
+            
+    def start_restart_for_simulation(self, sim_name: str, last_step: int | None, expected_nrun: int | None):
+        """
+        Открываем окно выбора нода + ресурсов.
+        1) Собираем список нодов и словари max_days / load.
+        2) Заполняем диалог №2.
+        3) Читаем выбор, сохраняем в переменные и запускаем скрипт (позже).
+        """
+
+        nodes = list(self.node_to_queue.keys())
+        if not nodes:
+            QtWidgets.QMessageBox.critical(self, "Chyba", "Seznam nodů je prázdný.")
+            return
+
+
+        node_max_time = {}
+        for node in nodes:
+            queue = self.node_to_queue[node]
+            node_max_time[node] = self.queue_to_max_walltime.get(queue, "—")
+
+        # словарь {node: load_text} - просто обходим все ноды и спрашиваем HTML-парсер
+        node_load = {}
+        for node in nodes:
+            node_load[node] = self.get_node_load(node)
+
+        dlg = NodeSelectionDialog(self)
+        dlg.set_data(nodes, node_max_time, node_load)
+
+        # дефолтные значения для спинбоксов из конфига, просто напоминание что так можно
+        dlg.spinPpn.setValue(int(self.config.get("ppn", 8)))
+        dlg.spinMemGb.setValue(int(self.config.get("mem_gb", 8)))
+
+        if dlg.exec_() != QtWidgets.QDialog.Accepted:
+            return
+
+        node = dlg.selected_node()
+        ppn = dlg.selected_ppn()
+        mem_gb = dlg.selected_mem_gb()
+
+        if not node or ppn is None or mem_gb is None:
+            QtWidgets.QMessageBox.critical(self,"Chyba","Při čtení vybraných parametrů došlo k chybě.")
+            return
+
+        # 6) здесь будут все данные, которые нужны скрипту:
+        #    - sim_name           (из Диалога №1)
+        #    - last_step          (из Диалога №1)
+        #    - expected_nrun      (из Диалога №1)
+        #    - node, ppn, mem_gb  (из Диалога №2)
+
+        # пока что только передадим их в cluster_service, реализацию скрипта допишем позже
+        error = cluster_service.restart_simulation_on_cluster(key_path=self.key_path, user_name=self.user_name,
+                            host=self.host, cluster_sim_path=self.cluster_sim_path, sim_name=sim_name,node=node, queue=self.node_to_queue.get(node, ""),
+            ppn=ppn, mem_gb=mem_gb, last_step=last_step, expected_nrun=expected_nrun )
+        
+        if error is not None:
+            QtWidgets.QMessageBox.critical( self, "Chyba", f"Chyba při spouštění restartu:\n{error}" )
+        else:
+            QtWidgets.QMessageBox.information( self, "Restart odeslán", f"Restart simulace '{sim_name}' byl odeslán na {node}." )
+        
+
         
 
 

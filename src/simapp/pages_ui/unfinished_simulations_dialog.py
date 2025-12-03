@@ -20,6 +20,12 @@ class UnfinishedSimulationsDialog(QtWidgets.QDialog):
         self.closeButton.clicked.connect(self.reject)   # или self.close
         self.actionButton.clicked.connect(self.on_action_button_clicked)
 
+
+        self.selected_folder: str | None = None
+        self.selected_last_step: int | None = None
+        self.selected_expected_nrun: int | None = None
+
+
     def set_data(self, rows):
         """
         rows: [(folder, last_step | None, expected_nrun), ...]
@@ -31,14 +37,44 @@ class UnfinishedSimulationsDialog(QtWidgets.QDialog):
 
             last_text = "—" if last_step is None else str(last_step)
             self.tableUnfinished.setItem(row, 1, QtWidgets.QTableWidgetItem(last_text))
-            self.tableUnfinished.setItem(
-                row, 2, QtWidgets.QTableWidgetItem(str(expected))
-            )
+            self.tableUnfinished.setItem(row, 2, QtWidgets.QTableWidgetItem(str(expected)))
 
         # на всякий случай ещё раз пересчитать после заполнения
         self.tableUnfinished.resizeColumnsToContents()
 
+
+
     def on_action_button_clicked(self):
-        # пока заглушка, чтобы не падало
-        # потом сюда впишешь свою логику
-        pass
+        """Забираем выбранную строку и закрываем диалог с Accepted."""
+        row = self.tableUnfinished.currentRow()
+        
+        if row < 0:
+            QtWidgets.QMessageBox.warning(self, "Výběr simulace", "Vyber prosím jednu simulaci v tabulce.")
+            return
+    
+        folder_item = self.tableUnfinished.item(row, 0)
+        last_item = self.tableUnfinished.item(row, 1)
+        expected_item = self.tableUnfinished.item(row, 2)
+        
+        if folder_item is None or expected_item is None:
+            QtWidgets.QMessageBox.warning(self, "Chyba", "Vybraný řádek je neplatný.")
+            return
+        
+        self.selected_folder = folder_item.text()
+        
+        # проверяем если вообще симуляция прошла до первой записи рестарта
+        last_text = last_item.text() if last_item is not None else "-"
+        if last_text in ("", "-"):
+            self.selected_last_step = None
+        else:
+            try:
+                self.selected_last_step = int(last_text)
+            except ValueError:
+                self.selected_last_step = None
+                
+        try:
+            self.selected_expected_nrun = int(expected_item.text())
+        except ValueError:
+            self.selected_expected_nrun = None
+
+        self.accept()
