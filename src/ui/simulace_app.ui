@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>927</width>
-    <height>512</height>
+    <width>1101</width>
+    <height>648</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -355,7 +355,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Graf</string>
+     <string>Copy select folder</string>
     </property>
    </widget>
    <widget class="QPushButton" name="runSimButton">
@@ -403,17 +403,17 @@
      </item>
     </layout>
    </widget>
-   <widget class="QPushButton" name="button_copy_dens_file_localy">
+   <widget class="QPushButton" name="button_check_restart_and_copy">
     <property name="geometry">
      <rect>
-      <x>590</x>
+      <x>570</x>
       <y>360</y>
-      <width>161</width>
+      <width>351</width>
       <height>41</height>
      </rect>
     </property>
     <property name="text">
-     <string>Copy dens file localy</string>
+     <string>Copy select folderCheck reastart and copy dens</string>
     </property>
    </widget>
   </widget>
@@ -422,7 +422,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>927</width>
+     <width>1101</width>
      <height>22</height>
     </rect>
    </property>

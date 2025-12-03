@@ -2,7 +2,7 @@ QMainWindow{
     background-color: #dee9ff;
 }
 
-QLabel, QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox, QPushButton{
+QLabel, QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox, QPushButton, QTableWidget{
     font-family: Verdana, sans-serif;
     font-size: 16px;
 }
@@ -20,3 +20,24 @@ QComboBox::item{
     background-color: #ace3f0;
 }
 
+
+QDialog#UnfinishedSimulationsDialog {
+    background-color: #dee9ff;
+}
+
+
+QTableWidget QHeaderView::section {
+    background-color: #c9d4f5;
+    font-size: 11pt;
+    padding: 4px 8px;
+}
+
+
+QTableWidget {
+    background-color: #e2e7f7;
+}
+
+QTableWidget::item {
+    border: 1px solid #444;   /* заметные линии сетки */
+    padding: 2px 4px;
+}

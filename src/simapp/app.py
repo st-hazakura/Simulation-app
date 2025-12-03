@@ -12,6 +12,7 @@ import sys
 from path import UI, CONFIG, SCRIPTS, ENV_FILE, in_root
 from pathlib import Path
 
+from pages_ui.unfinished_simulations_dialog import UnfinishedSimulationsDialog
 from pbs_parser import (parse_node_load_from_nodes,parse_node_load_from_jobs,)
 import cluster_service
 class MainWindow(QtWidgets.QMainWindow):
@@ -59,7 +60,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_folders.clicked.connect(self.update_simComboBox)
         self.copyAndRunButton.clicked.connect(self.copy_and_run_local_analysis)
         self.runSimButton.clicked.connect(self.run_simulation_locally)
-        self.button_copy_dens_file_localy.clicked.connect(self.copy_only_dens_files)
+        
+        self.button_check_restart_and_copy.clicked.connect(self.check_and_copy_dens_with_restart)
+        
 
         self.load_yaml()
         self.simulation_name.setText("WCA")
@@ -167,7 +170,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         max_time = self.queue_to_max_walltime.get(queue)
         if max_time:
-            self.maxTimeLabel.setText(max_time)
+            self.maxTimeLabel.setText(f"max: {max_time}")
         else:
             self.maxTimeLabel.setText("neznámý limit")
         
@@ -232,8 +235,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if folders:
             self.simComboBox.addItems(folders)
 
-
+# TODO: добавить реализацию копирования на комп и запуска анализа плотности 
     def copy_and_run_local_analysis(self):
+
         """Copy fold from cluster to PC"""
         sim_name = self.simComboBox.currentText()
         if not sim_name:
@@ -264,18 +268,31 @@ class MainWindow(QtWidgets.QMainWindow):
         return decimals_map
 
 
-    def copy_only_dens_files(self):
-        """Создать локальные папки и скопировать densF.dat из каждой симуляции с кластера."""
-        error = cluster_service.copy_density_files( key_path=self.key_path, user_name=self.user_name,
-                    host=self.host, cluster_sim_path=self.cluster_sim_path,
-                    local_results_dir=Path(self.results_dir))
+    def check_and_copy_dens_with_restart(self):
+        """
+        1) Находит все папки с симуляциями на кластере.
+        2) Для каждой читает nrun из box.in и смотрит на файлы run.restart.*.
+        3) Если последний restart >= nrun – копирует densF.dat локально.
+        4) Если нет – собирает список «незавершённых» симуляций и показывает их в таблице.
+        """
+
+        incomplete, error = cluster_service.check_and_copy_density_with_restart( key_path=self.key_path, user_name=self.user_name,
+                            host=self.host, cluster_sim_path=self.cluster_sim_path, local_results_dir=Path(self.results_dir))
 
         if error is not None:
-            QtWidgets.QMessageBox.critical(self,"Chyba", error)
+            QtWidgets.QMessageBox.critical(self, "Chyba", error)
             return
 
-        QtWidgets.QMessageBox.information(self, "Hotovo", "Файлы densF.dat byly zkopírovány do všech složek.",)
+        # Если все симуляции завершены
+        if not incomplete:
+            QtWidgets.QMessageBox.information(self, "Hotovo",
+                    "Všechny simulace mají poslední restart a soubory densF.dat byly zkopírovány.",)
+            return
 
+        dlg = UnfinishedSimulationsDialog(self)
+        dlg.set_data(incomplete)
+        dlg.exec_()
+        
 
 
 app = QtWidgets.QApplication([])

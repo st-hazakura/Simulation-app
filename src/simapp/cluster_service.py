@@ -115,3 +115,92 @@ def copy_density_files( key_path: str, user_name: str, host: str, cluster_sim_pa
             return result.stderr or f"Chyba při kopírování densF.dat ze složky {folder}"
 
     return None
+
+
+def check_and_copy_density_with_restart(key_path: str, user_name: str, host: str,
+                                        cluster_sim_path: str, local_results_dir: Path,
+                                        ) -> Tuple[List[Tuple[str, int | None, int]], Optional[str]]:
+    """
+    Для всех симуляций на кластере:
+      - читает nrun из box.in,
+      - ищет файлы run.restart.* и определяет последний шаг,
+      - если последний шаг >= nrun -> копирует densF.dat локально,
+      - иначе добавляет запись в список незавершённых симуляций.
+
+    Возвращает:
+      (unfinished_list, error),
+      где unfinished_list: [(folder, last_restart_step | None, expected_nrun), ...]
+    """
+    # 1. Получаем список папок
+    folders, err = list_remote_simulations( key_path=key_path, user_name=user_name, host=host, cluster_sim_path=cluster_sim_path)
+    if err is not None:
+        return [], err
+    if not folders:
+        return [], "Na clustru nebyly nalezeny žádné složky se simulacemi."
+    
+
+
+    unfinished: List[Tuple[str, int | None, int]] = []
+
+    for folder in folders:
+        # --- читаем nrun из box.in ---
+        cmd_nrun = (
+            f"cd {cluster_sim_path}/{folder} && "
+            "grep 'variable nrun' box.in | awk '{print $4}'")
+        
+        result_nrun = _run_plink( key_path=key_path, user_name=user_name, host=host, command=cmd_nrun,)
+        if result_nrun.returncode != 0 or not result_nrun.stdout.strip():
+            return [], result_nrun.stderr or f"Nelze zjistit nrun v simulaci {folder}"
+        try:
+            nrun = int(result_nrun.stdout.strip().split()[0])
+        except ValueError:
+            return [], f"Neplatná hodnota nrun v simulaci {folder}: {result_nrun.stdout!r}"
+
+        # --- ищем restart файлы, в случае ошибки программа возвращает 0 ---
+        cmd_ls_restart = (
+            f"cd {cluster_sim_path}/{folder} && ls run.restart.* 2>/dev/null || true")
+        
+        
+        result_restart = _run_plink( key_path=key_path, user_name=user_name, host=host, command=cmd_ls_restart)
+        if result_restart.returncode != 0:
+            # тут treat как ошибку, это уже странно
+            return [], result_restart.stderr or f"Chyba při listování restart souborů v {folder}"
+        
+        # список всех рестарт файлов + требуемый последний рестарт
+        lines = [ln for ln in result_restart.stdout.strip().splitlines() if ln]
+        steps: List[int] = []
+        for name in lines:
+            # ожидаем имена вида run.restart.500000б оставляем то что после точки
+            parts = name.rsplit(".", 1)
+            if len(parts) != 2:
+                continue
+            try:
+                steps.append(int(parts[1]))
+            except ValueError:
+                continue
+        #тайпхинт переменной
+        last_step: int | None = max(steps) if steps else None
+
+        # решение: докопалась ли симуляция до конца
+        finished = last_step is not None and last_step >= nrun
+
+        if finished:
+            # копируем densF.dat, как в copy_density_files
+            local_path = local_results_dir / folder
+            local_path.mkdir(parents=True, exist_ok=True)
+
+            remote_file = f"{user_name}@{host}:{cluster_sim_path}/{folder}/densF.dat"
+            local_file_path = local_path / "densF.dat"
+
+            copy_result = _run_pscp(
+                key_path=key_path,
+                source=remote_file,
+                dest=str(local_file_path),
+                recursive=False,
+            )
+            if copy_result.returncode != 0:
+                return [], copy_result.stderr or f"Chyba při kopírování densF.dat ze složky {folder}"
+        else:
+            unfinished.append((folder, last_step, nrun))
+
+    return unfinished, None
