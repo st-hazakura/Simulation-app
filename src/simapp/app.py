@@ -13,7 +13,7 @@ from path import UI, CONFIG, SCRIPTS, ENV_FILE, in_root
 from pathlib import Path
 
 from pbs_parser import (parse_node_load_from_nodes,parse_node_load_from_jobs,)
-
+import cluster_service
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
@@ -50,11 +50,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "node29": "enp3", "node30": "enp3", "node31": "enp3",
             "node32": "enp3", "node33": "enp3", "node34": "enp3"
         }
-
-        self.queue_to_max_walltime = {
-            "enp5": "20 dnů",
-            "enp3": "3 dny",
-        }
+        self.queue_to_max_walltime = {"enp5": "20 dnů", "enp3": "3 dny"}
 
         self.nodes.addItems(self.node_to_queue.keys())
         self.nodes.currentTextChanged.connect(self.update_info)
@@ -203,63 +199,56 @@ class MainWindow(QtWidgets.QMainWindow):
             return f"Chyba načítání: {e}"
 
     def show_job_status(self):
-        status = self.check_job_status()
-        if status:
-            box = QtWidgets.QMessageBox(self)
-            box.setWindowTitle("Stav úloh")
-            box.setInformativeText(status)
-            box.setStandardButtons(QtWidgets.QMessageBox.Ok)
-            box.setStyleSheet("QLabel{min-width: 900px;}")
-            box.exec_()
+        status, error = cluster_service.get_job_status( key_path=self.key_path,
+                                    user_name=self.user_name, host=self.host)
 
-    def check_job_status(self):
-        try:
-            result = subprocess.run(
-                ["plink", "-batch", "-i", self.key_path, f"{self.user_name}@{self.host}", f"qstat -u {self.user_name}"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            if result.returncode == 0:
-                print("Aktuální úlohy:\n" + result.stdout)
-                return result.stdout
-            else:
-                print("Chyba při načítání qstat:\n" + result.stderr)
-                return None
-        except Exception as e:
-            print(f"Výjimka: {e}")
-            return None
+        if error is not None:
+            QtWidgets.QMessageBox.critical(self, "Chyba",f"Chyba při načítání qstat:\n{error}")
+            return
+        
+        if not status:
+            QtWidgets.QMessageBox.information(self, "Stav úloh", "Žádné úlohy neběží.")
+            return        
+                
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle("Stav úloh")
+        box.setInformativeText(status)
+        box.setStandardButtons(QtWidgets.QMessageBox.Ok)
+        box.setStyleSheet("QLabel{min-width: 900px;}")
+        box.exec_()
+
+
 
     def update_simComboBox(self):
-        result = subprocess.run([
-            "plink", "-batch", "-i", self.key_path, f"{self.user_name}@{self.host}",
-            f"ls {self.cluster_sim_path}"
-        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        """Načte seznam složek se simulacemi z clusteru a zobrazí je v comboboxu."""
+        folders, error = cluster_service.list_remote_simulations( key_path=self.key_path, 
+                user_name=self.user_name, host=self.host, cluster_sim_path=self.cluster_sim_path)
 
-        if result.returncode == 0:
-            folders = result.stdout.strip().splitlines()
-            self.simComboBox.clear()
+        if error is not None:
+            QtWidgets.QMessageBox.critical(self, "Chyba při načítání", error)
+            return
+
+        self.simComboBox.clear()
+        if folders:
             self.simComboBox.addItems(folders)
-        else:
-            QtWidgets.QMessageBox.critical(self, "Chyba při načítání", result.stderr)
 
 
     def copy_and_run_local_analysis(self):
         """Copy fold from cluster to PC"""
         sim_name = self.simComboBox.currentText()
+        if not sim_name:
+            QtWidgets.QMessageBox.warning( self, "Upozornění", "Nejprve vyber simulaci v seznamu.")
+            return
+        
         notebook_source = os.getenv("NOTEBOOK_SOURCE") 
 
-        dest_sim_folder = os.path.join(str(self.results_dir), sim_name)
-        os.makedirs(dest_sim_folder, exist_ok=True)
-
-        remote_path = f"{self.user_name}@{self.host}:{self.cluster_sim_path}/{sim_name}/*"
-        result = subprocess.run([
-            "pscp", "-i", self.key_path, "-r", remote_path, dest_sim_folder
-        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        if result.returncode != 0:
-            QtWidgets.QMessageBox.critical(self, "Chyba při kopírování", result.stderr)
+        error = cluster_service.copy_simulation_folder( key_path=self.key_path, user_name=self.user_name,
+                host=self.host, cluster_sim_path=self.cluster_sim_path, sim_name=sim_name, local_results_dir=Path(self.results_dir))
+        if error is not None:
+            QtWidgets.QMessageBox.critical(self, "Chyba při kopírování", error)
             return
+
+        QtWidgets.QMessageBox.information( self, "Hotovo", f"Složka simulace '{sim_name}' byla zkopírována.")
 
         # # Копирование и запуск notebook ??? po zmenam kodu nevim
         # notebook_dest = os.path.join(str(self.results_dir), "hustotni_profil.ipynb")
@@ -276,33 +265,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def copy_only_dens_files(self):
-        """Создать локальные папки и скопировать densF.dat из каждой симуляции с кластера"""
+        """Создать локальные папки и скопировать densF.dat из каждой симуляции с кластера."""
+        error = cluster_service.copy_density_files( key_path=self.key_path, user_name=self.user_name,
+                    host=self.host, cluster_sim_path=self.cluster_sim_path,
+                    local_results_dir=Path(self.results_dir))
 
-        # Получаем список всех папок в ~/simulations
-        result = subprocess.run([
-            "plink", "-batch", "-i", self.key_path, f"{self.user_name}@{self.host}",
-            f"ls {self.cluster_sim_path}"
-        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-        if result.returncode != 0:
-            QtWidgets.QMessageBox.critical(self, "Chyba", result.stderr)
+        if error is not None:
+            QtWidgets.QMessageBox.critical(self,"Chyba", error)
             return
 
-        all_folders = result.stdout.strip().splitlines()
-
-        for folder in all_folders:
-            local_path = os.path.join(self.results_dir, folder)
-            os.makedirs(local_path, exist_ok=True)
-
-            remote_file = f"{self.user_name}@{self.host}:{self.cluster_sim_path}/{folder}/densF.dat"
-            local_file_path = os.path.join(local_path, "densF.dat")
-
-            # Копируем только densF.dat
-            subprocess.run([
-                "pscp", "-i", self.key_path, remote_file, local_file_path
-            ])
-
-        QtWidgets.QMessageBox.information(self, "Hotovo", "Файлы densF.dat скопированы во все папки.")
+        QtWidgets.QMessageBox.information(self, "Hotovo", "Файлы densF.dat byly zkopírovány do všech složek.",)
 
 
 
