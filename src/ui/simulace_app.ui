@@ -83,20 +83,13 @@
    <widget class="QWidget" name="gridLayoutWidget_2">
     <property name="geometry">
      <rect>
-      <x>340</x>
+      <x>530</x>
       <y>230</y>
       <width>171</width>
       <height>82</height>
      </rect>
     </property>
     <layout class="QGridLayout" name="r_cut">
-     <item row="2" column="0">
-      <widget class="QLabel" name="label_11">
-       <property name="text">
-        <string>rcut 2-2</string>
-       </property>
-      </widget>
-     </item>
      <item row="1" column="0">
       <widget class="QLabel" name="label_10">
        <property name="text">
@@ -104,20 +97,27 @@
        </property>
       </widget>
      </item>
-     <item row="0" column="0">
-      <widget class="QLabel" name="label_9">
+     <item row="2" column="0">
+      <widget class="QLabel" name="label_11">
        <property name="text">
-        <string>rcut 1-1</string>
+        <string>rcut 2-2</string>
        </property>
       </widget>
      </item>
-     <item row="0" column="1">
-      <widget class="QDoubleSpinBox" name="rcutLJ11">
+     <item row="2" column="1">
+      <widget class="QDoubleSpinBox" name="rcutLJ22">
        <property name="decimals">
         <number>5</number>
        </property>
        <property name="maximum">
         <double>20.000000000000000</double>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="0">
+      <widget class="QLabel" name="label_9">
+       <property name="text">
+        <string>rcut 1-1</string>
        </property>
       </widget>
      </item>
@@ -131,8 +131,8 @@
        </property>
       </widget>
      </item>
-     <item row="2" column="1">
-      <widget class="QDoubleSpinBox" name="rcutLJ22">
+     <item row="0" column="1">
+      <widget class="QDoubleSpinBox" name="rcutLJ11">
        <property name="decimals">
         <number>5</number>
        </property>
@@ -175,6 +175,27 @@
      </item>
      <item>
       <widget class="QLineEdit" name="simulation_name"/>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_8">
+       <property name="text">
+        <string>Typ simulace</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="potential_type">
+       <item>
+        <property name="text">
+         <string>WCA</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>LJ</string>
+        </property>
+       </item>
+      </widget>
      </item>
     </layout>
    </widget>
@@ -361,7 +382,7 @@
    <widget class="QPushButton" name="runSimButton">
     <property name="geometry">
      <rect>
-      <x>780</x>
+      <x>940</x>
       <y>250</y>
       <width>111</width>
       <height>41</height>
@@ -374,7 +395,7 @@
    <widget class="QWidget" name="formLayoutWidget">
     <property name="geometry">
      <rect>
-      <x>570</x>
+      <x>730</x>
       <y>230</y>
       <width>191</width>
       <height>80</height>
@@ -415,6 +436,69 @@
     <property name="text">
      <string>Copy select folderCheck reastart and copy dens</string>
     </property>
+   </widget>
+   <widget class="QWidget" name="gridLayoutWidget_3">
+    <property name="geometry">
+     <rect>
+      <x>320</x>
+      <y>230</y>
+      <width>171</width>
+      <height>82</height>
+     </rect>
+    </property>
+    <layout class="QGridLayout" name="r_cut_2">
+     <item row="2" column="0">
+      <widget class="QLabel" name="label_12">
+       <property name="text">
+        <string>sigmat 2-2</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="0">
+      <widget class="QLabel" name="label_13">
+       <property name="text">
+        <string>sigma 1-2</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="0">
+      <widget class="QLabel" name="label_14">
+       <property name="text">
+        <string>sigma 1-1</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QDoubleSpinBox" name="sig11">
+       <property name="decimals">
+        <number>5</number>
+       </property>
+       <property name="maximum">
+        <double>20.000000000000000</double>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <widget class="QDoubleSpinBox" name="sig12">
+       <property name="decimals">
+        <number>5</number>
+       </property>
+       <property name="maximum">
+        <double>20.000000000000000</double>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="1">
+      <widget class="QDoubleSpinBox" name="sig22">
+       <property name="decimals">
+        <number>5</number>
+       </property>
+       <property name="maximum">
+        <double>20.000000000000000</double>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">

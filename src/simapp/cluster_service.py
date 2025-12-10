@@ -210,11 +210,53 @@ def restart_simulation_on_cluster(key_path: str, user_name: str, host: str, clus
                                   sim_name: str, node: str, queue: str, ppn: int, mem_gb: int,
                                   last_step: int | None, expected_nrun: int | None):
     """
-    Здесь потом:
-      - на основе last_step / expected_nrun решишь:
-          * restart vs полный rerun;
-      - поправишь run.sh (nodes, ppn, mem, walltime);
-      - запустишь submit_job.sh.
-    Пока можно просто вернуть None или сделать простой вариант.
+      - проверяем входные данные;
+      - переписываем ресурсы в run.sh (nodes, queue, mem);
+      - запускаем qsub run.sh через plink.
+      
+          Возвращает:
+      None       - если всё ок;
+      строку str - с текстом ошибки, если что-то пошло не так
     """
+    
+    if not sim_name:
+        return "Nebyl předán název simulace."
+    if not node:
+        return "Nebyl vybrán žádný node."
+    if not queue:
+        return "Pro vybraný node nebyla nalezena fronta (queue)."    
+    
+    remote_sim_dir = Path(cluster_sim_path) / sim_name
+    remote_sim_dir_str = str(remote_sim_dir)
+    
+    mem_str = f"{int(mem_gb)}gb"
+
+
+    # Команда, которая выполняется на кластере
+    remote_cmd_parts = [
+        f'cd "{remote_sim_dir_str}"',
+        'if [ ! -f run.sh ]; then echo "run.sh nenalezen"; exit 1; fi',
+        # обновляем узел + ppn
+        f"sed -i 's/^#PBS -l nodes=.*/#PBS -l nodes={node}:ppn={ppn}/' run.sh",
+        # очередь
+        f"sed -i 's/^#PBS -q .*/#PBS -q {queue}/' run.sh",
+        # память
+        f"sed -i 's/^#PBS -l mem=.*/#PBS -l mem={mem_str}/' run.sh",
+        # запуск задания
+        "qsub run.sh",
+    ]
+    
+    remote_cmd = " && ".join(remote_cmd_parts)
+    
+    result = _run_plink(
+        key_path=key_path,
+        user_name=user_name,
+        host=host,
+        command=remote_cmd,
+    )        
+    
+    if result.returncode != 0:
+        msg = result.stderr.strip() or result.stdout.strip() or "neznámá chyba"
+        return f"Chyba při spouštění restartu na clustru:\n{msg}"
+    
     return None

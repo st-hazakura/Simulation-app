@@ -8,6 +8,7 @@ import subprocess
 import os
 import shutil
 import sys
+import math
 
 from path import UI, CONFIG, SCRIPTS, ENV_FILE, in_root
 from pathlib import Path
@@ -68,6 +69,25 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.load_yaml()
         self.simulation_name.setText("WCA")
+        
+        # update r_cut 
+        pot = self.config.get("potential_type", "WCA") # je,neni
+        idx = self.potential_type.findText(pot)
+        if idx >=0:
+            self.potential_type.setCurrentIndex(idx)
+        
+        self.potential_type.currentIndexChanged.connect(self.on_potential_or_sigma_changed)
+        self.sig11.valueChanged.connect(self.on_potential_or_sigma_changed)
+        self.sig12.valueChanged.connect(self.on_potential_or_sigma_changed)
+        self.sig22.valueChanged.connect(self.on_potential_or_sigma_changed)
+        
+        self.fluid_gap.valueChanged.connect(self.on_geom_param_changed)
+        self.sig12.valueChanged.connect(self.on_geom_param_changed)
+
+        # on start recompute 
+        self.on_potential_or_sigma_changed()
+        self.on_geom_param_changed()
+        
         
     def run_simulation_locally(self):
         """Сохраняем параметры симуляции, локально открываем папку для симуляций, на основе параметров генерируем входные файлы и запускаем симуляцию
@@ -359,8 +379,71 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             QtWidgets.QMessageBox.information( self, "Restart odeslán", f"Restart simulace '{sim_name}' byl odeslán na {node}." )
         
+    def compute_rcuts(self):
+        pot = self.potential_type.currentText().lower()
 
-        
+        sig11 = float(self.sig11.value())
+        sig12 = float(self.sig12.value())
+        sig22 = float(self.sig22.value())
+
+        if pot.startswith("wca"):
+            # WCA: r_cut = 2^(1/6) * sigma
+            factor = 2.0 ** (1.0 / 6.0)
+            r11 = factor * sig11
+            r12 = factor * sig12
+            r22 = factor * sig22
+        else:
+            # Lennard-Jones
+            # r11 = 2.5 * sig11
+            # r12 = 2.5 * sig12
+            # r22 = 2.5 * sig22
+
+            # 2 varianta
+            r11= 3.2
+            r12= 3.2
+            r22 = 3.2
+
+        return r11, r12, r22
+    
+    
+    def on_potential_or_sigma_changed(self):
+        r11, r12, r22 = self.compute_rcuts()
+
+        # not change if valueChanged  r_cut
+        self.rcutLJ11.blockSignals(True)
+        self.rcutLJ12.blockSignals(True)
+        self.rcutLJ22.blockSignals(True)
+
+        self.rcutLJ11.setValue(r11)
+        self.rcutLJ12.setValue(r12)
+        self.rcutLJ22.setValue(r22)
+
+        self.rcutLJ11.blockSignals(False)
+        self.rcutLJ12.blockSignals(False)
+        self.rcutLJ22.blockSignals(False)        
+
+    def compute_Lz(self) -> int:
+        H = float(self.fluid_gap.value())
+        sigma12 = float(self.sig12.value())
+
+        rho_wall = float(self.config.get("rho_wall", 0.75))
+        Nz_wall = 4
+
+        a_wall = (1.0 / rho_wall) ** (1.0 / 3.0)
+        Zw = Nz_wall * a_wall
+
+        Lz_raw = H + 2.0 * sigma12 + 2.0 * Zw
+        Lz_int = math.ceil(Lz_raw)
+        return Lz_int
+
+    def on_geom_param_changed(self):
+        # пересчитываем Lz только когда меняем H или sigma12
+        Lz_int = self.compute_Lz()
+
+        # чтобы не ловить лишние valueChanged от самого Lz
+        self.Lz.blockSignals(True)
+        self.Lz.setValue(Lz_int)
+        self.Lz.blockSignals(False)
 
 
 app = QtWidgets.QApplication([])
