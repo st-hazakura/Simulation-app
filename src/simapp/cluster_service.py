@@ -117,18 +117,17 @@ def copy_density_files( key_path: str, user_name: str, host: str, cluster_sim_pa
     return None
 
 
-def check_and_copy_density_with_restart(key_path: str, user_name: str, host: str,
-                                        cluster_sim_path: str, local_results_dir: Path,
-                                        ) -> Tuple[List[Tuple[str, int | None, int]], Optional[str]]:
+def completeness_check(key_path: str, user_name: str, host: str, cluster_sim_path: str
+                                        ) -> Tuple[List[Tuple[str, int | None, int]], Optional[str], List[str]]:
     """
     Для всех симуляций на кластере:
       - читает nrun из box.in,
       - ищет файлы run.restart.* и определяет последний шаг,
-      - если последний шаг >= nrun -> копирует densF.dat локально,
-      - иначе добавляет запись в список незавершённых симуляций.
+      - если последний шаг >= nrun -> добавляет путь папки в isfinished
+      - иначе добавляет запись в список unfinished_list незавершённых симуляций.
 
     Возвращает:
-      (unfinished_list, error),
+      (unfinished_list, error, isfinished),
       где unfinished_list: [(folder, last_restart_step | None, expected_nrun), ...]
     """
     # 1. Получаем список папок
@@ -138,9 +137,9 @@ def check_and_copy_density_with_restart(key_path: str, user_name: str, host: str
     if not folders:
         return [], "Na clustru nebyly nalezeny žádné složky se simulacemi."
     
-
-
     unfinished: List[Tuple[str, int | None, int]] = []
+    isfinished: List[str] = []
+    
 
     for folder in folders:
         # --- читаем nrun из box.in ---
@@ -185,6 +184,20 @@ def check_and_copy_density_with_restart(key_path: str, user_name: str, host: str
         finished = last_step is not None and last_step >= nrun
 
         if finished:
+            isfinished.append(str(folder))
+        else:
+            unfinished.append((folder, last_step, nrun))
+
+    return unfinished, None, isfinished
+
+
+
+def copy_densF_for_finish_sim(key_path: str, user_name: str, host: str, cluster_sim_path: str,
+                              isfinished: List[str], local_results_dir: Path):
+    folders, err = list_remote_simulations( key_path=key_path, user_name=user_name, host=host, cluster_sim_path=cluster_sim_path)
+    
+    for folder in folders:
+        if folder in isfinished:
             # копируем densF.dat, как в copy_density_files
             local_path = local_results_dir / folder
             local_path.mkdir(parents=True, exist_ok=True)
@@ -199,11 +212,10 @@ def check_and_copy_density_with_restart(key_path: str, user_name: str, host: str
                 recursive=False,
             )
             if copy_result.returncode != 0:
-                return [], copy_result.stderr or f"Chyba při kopírování densF.dat ze složky {folder}"
-        else:
-            unfinished.append((folder, last_step, nrun))
+                return copy_result.stderr or f"Chyba při kopírování densF.dat ze složky {folder}"
+    return None
 
-    return unfinished, None
+
 
 
 def restart_simulation_on_cluster(key_path: str, user_name: str, host: str, cluster_sim_path: str,

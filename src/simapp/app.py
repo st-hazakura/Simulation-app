@@ -65,7 +65,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.runSimButton.clicked.connect(self.run_simulation_locally)
         
         self.button_check_restart_and_copy.clicked.connect(self.check_and_copy_dens_with_restart)
-        
+        self.button_restart_simulation.clicked.connect(self.check_restart_and_restart)
 
         self.load_yaml()
         self.simulation_name.setText("WCA")
@@ -105,11 +105,30 @@ class MainWindow(QtWidgets.QMainWindow):
 
         build_path = in_root(sim_name)
         shutil.move(str(build_path), str(local_sim_path))
+        
+        # run lammps 
+        # subprocess.Popen(
+        #     ["cmd", "/K", "cd", "/d", str(local_sim_path), "&&", self.lmp_path, "-in", "box.in"]
+        # )
 
+        convert_to_xyz = Path(__file__).resolve().parent.parent / "config" / "slit_to_xyz.py"
+        dest_xyz = local_sim_path / convert_to_xyz.name
+        shutil.copy2(convert_to_xyz, dest_xyz)
         subprocess.Popen(
-            ["cmd", "/K", "cd", "/d", str(local_sim_path), "&&", self.lmp_path, "-in", "box.in"]
-        )
+            [sys.executable, str(dest_xyz)],
+            cwd=local_sim_path,
+        )        
 
+        # to open folder on PC of local simulation        
+        try:
+            # Windows
+            os.startfile(str(local_sim_path))
+        except AttributeError:
+            # macOS / Linux
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", str(local_sim_path)])
+            else:
+                subprocess.Popen(["xdg-open", str(local_sim_path)])        
     
     def update_yaml(self):
         """Update yaml file with parametrs from widgets in Qt and save decimals from widgets"""
@@ -291,20 +310,31 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
     def check_and_copy_dens_with_restart(self):
-        """
-        1) Находит все папки с симуляциями на кластере.
-        2) Для каждой читает nrun из box.in и смотрит на файлы run.restart.*.
-        3) Если последний restart >= nrun - копирует densF.dat локально.
-        4) Если нет - собирает список «незавершённых» симуляций и показывает их в таблице.
-        """
-
-        incomplete, error = cluster_service.check_and_copy_density_with_restart( key_path=self.key_path, user_name=self.user_name,
-                            host=self.host, cluster_sim_path=self.cluster_sim_path, local_results_dir=Path(self.results_dir))
+        incomplete, error, isfinished = cluster_service.completeness_check( key_path=self.key_path, user_name=self.user_name,
+                            host=self.host, cluster_sim_path=self.cluster_sim_path)
 
         if error is not None:
             QtWidgets.QMessageBox.critical(self, "Chyba", error)
             return
 
+        if isfinished is None:
+            QtWidgets.QMessageBox.information(self, "Chyba",
+                    "Žádná simulace nedoběhla do požádovaného počtu kroků")
+        else:
+            error2 = cluster_service.copy_densF_for_finish_sim( key_path=self.key_path, user_name=self.user_name,
+                            host=self.host, cluster_sim_path=self.cluster_sim_path, isfinished=isfinished, local_results_dir=Path(self.results_dir))
+            if error2 is not None:
+                QtWidgets.QMessageBox.critical(self, "Chyba", error)
+
+
+    def check_restart_and_restart(self):
+        incomplete, error, isfinished = cluster_service.completeness_check( key_path=self.key_path, user_name=self.user_name,
+                            host=self.host, cluster_sim_path=self.cluster_sim_path)
+
+        if error is not None:
+            QtWidgets.QMessageBox.critical(self, "Chyba", error)
+            return
+        
         # Если все симуляции завершены
         if not incomplete:
             QtWidgets.QMessageBox.information(self, "Hotovo",
@@ -317,8 +347,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         if result == QtWidgets.QDialog.Accepted and dlg.selected_folder:
             self.start_restart_for_simulation( dlg.selected_folder, dlg.selected_last_step, 
-                                               dlg.selected_expected_nrun)
-            
+                                               dlg.selected_expected_nrun)        
             
             
     def start_restart_for_simulation(self, sim_name: str, last_step: int | None, expected_nrun: int | None):

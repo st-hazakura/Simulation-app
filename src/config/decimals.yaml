@@ -3,3 +3,6 @@ rcutLJ11: 5
 rcutLJ12: 5
 rcutLJ22: 5
 rho_fluid: 1
+sig11: 5
+sig12: 5
+sig22: 5
