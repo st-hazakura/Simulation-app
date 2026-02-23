@@ -1,0 +1,144 @@
+# Overdamped ABP in Slit Dynamics with WCA Potential
+# gamma_t=3.gamma_r/sig^2
+# D_t=k.T_t/gamma_t, D_r=k.T_r/gamma_r
+# vp=fp/gamma_t 
+# Pe=vp/(D_r.sig)
+
+# Variables
+variable T_t         equal     1.6   # Translation Temperature 
+variable T_r         equal     1.6   # Rotational Temperature
+variable gamma_t     equal     1.0            # Translation Friction Coefficient
+variable gamma_r     equal     0.3333333333   # Rotational Friction Coefficient
+variable fp          equal    24.0            # Self-Propelled Force (run); Pe=60
+
+variable mLJ         equal     1.0            # Particle Mass
+variable mW          equal     1.0            # Wall Mass
+
+variable eps11       equal     1.0            # f-f LJ epsilon 
+variable sig11       equal     1.0            # f-f LJ sigma
+variable eps22       equal     0.0            # W-W LJ epsilon 
+variable sig22       equal     1.2            # W-W LJ sigma
+variable eps12       equal     1.0            # f-W LJ epsilon 
+variable sig12       equal     1.1            # f-W LJ sigma
+ 
+variable rcutLJ11    equal     1.1224620483   # f-f LJ Cut-off
+variable rcutLJ22    equal     1.3469544580   # W-W LJ Cut-off
+variable rcutLJ12    equal     1.2347082531   # f-W LJ Cut-off
+
+variable rcut        equal     2.5            # LJ Cut-off
+variable dt          equal     2.0e-5         # Time Step
+variable binABP      equal     1.0            # ABP bin !!! 0.3 LJ vs higher diffusion in ABPs !!!
+
+variable dm          equal     1.0            # Magnitude of Dipole Moment
+
+variable seed1       equal     58531416       # Random # Seed1
+variable seed2       equal     1974019        # Random # Seed2
+
+variable wBin        equal     0.25           # Bin Width
+variable wBin1       equal     0.01
+
+variable nthermo     equal      5000          # Thermo Output
+
+variable ndump       equal      5000          # dump Output
+variable ndump1      equal      5000
+
+variable neql        equal     20000          # eql Steps
+variable nrun        equal    5000000          # run Steps
+
+variable nrestart     equal   100000          # Restart File
+
+variable navg1       equal       100
+variable navg2       equal       100
+variable navg3       equal     10000          # navg1.navg2 <= navg3
+
+# General
+units            lj
+atom_style       hybrid dipole sphere
+dimension        3
+newton           off
+boundary         p p f
+
+# Style
+pair_style       lj/cut ${rcut}
+pair_modify      shift yes
+
+# Atom Definition
+read_data        dataWCA.slit
+
+mass		     1 ${mLJ}
+mass		     2 ${mW}
+
+set              type 1 dipole/random ${seed1} ${dm}
+set              type 2 dipole/random ${seed1} ${dm}
+
+pair_coeff	     1 1 ${eps11} ${sig11} ${rcutLJ11}
+pair_coeff	     2 2 ${eps22} ${sig22} ${rcutLJ22}
+pair_coeff	     1 2 ${eps12} ${sig12} ${rcutLJ12}
+
+# Settings
+group 	         fluid  type 1
+group 	         wall   type 2
+
+neighbor	     ${binABP} bin
+neigh_modify	 delay 0 every 1 check yes
+neigh_modify     exclude group wall wall
+
+compute          Tfluid fluid temp
+
+compute          press all pressure NULL virial
+
+# Output
+thermo_style     custom step c_Tfluid pe ke c_press c_press[1] c_press[2] c_press[3]   
+thermo_modify    flush yes lost warn
+thermo           ${nthermo}
+
+#1 Overdamped Brownian Dynamics (eql)
+velocity         fluid create ${T_t} ${seed1} mom yes dist gaussian
+
+fix              1 fluid brownian/sphere ${T_t} ${seed2} gamma_t ${gamma_t} gamma_r ${gamma_r} rng gaussian
+
+fix              2 fluid propel/self dipole ${fp}
+
+timestep         ${dt}
+
+run              ${neql}
+
+unfix            1
+unfix            2
+
+write_restart    restart.ABP
+
+reset_timestep  0
+
+# Dump Atom Positions for Visualization
+dump             dumpall all xyz ${ndump} dumpABP.xyz
+dump_modify      dumpall element O C
+
+# Dump Fluid Positions for Postprocessing
+dump		     dumpfluid fluid custom ${ndump1} dumpABP.cs id type x y z mux muy muz
+
+# Density Profiles
+compute          binF   fluid  chunk/atom  bin/1d  z center ${wBin} units box
+fix              densF  fluid  ave/chunk   ${navg1} ${navg2} ${navg3} binF  density/number ave running file densF.dat
+
+compute          binF1  fluid  chunk/atom  bin/1d  z center ${wBin1} units box
+fix              densF1 fluid  ave/chunk   ${navg1} ${navg2} ${navg3} binF1  density/number ave running file densF1.dat
+
+restart          ${nrestart} run.restart
+
+#2 Overdamped Brownian Dynamics (run)
+fix              1 fluid brownian/sphere ${T_t} ${seed2} gamma_t ${gamma_t} gamma_r ${gamma_r} rng gaussian
+
+fix              2 fluid propel/self dipole ${fp}
+
+timestep         ${dt}
+
+run              ${nrun}
+
+unfix            1
+unfix            2
+
+# Restart File
+write_restart    restart.ABP
+
+# DONE

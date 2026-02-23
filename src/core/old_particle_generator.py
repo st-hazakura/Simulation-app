@@ -157,4 +157,3 @@ def generate_particles(config):
         "wall_volume": V_wall,
         "output_dir": output_dir
     }
-

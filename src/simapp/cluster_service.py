@@ -2,7 +2,15 @@ from __future__ import annotations
 from typing import List, Tuple, Optional
 import subprocess
 from pathlib import Path
+import tempfile
+from pathlib import PurePosixPath
 
+import sys
+
+# Ensure .../src is on sys.path so we can import sibling packages like "core".
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from core.box_to_restart import make_restart_in_from_box
 
 def _run_plink(key_path: str, user_name: str, host: str, command: str) -> subprocess.CompletedProcess:
     """Внутренний helper для plink."""
@@ -104,15 +112,24 @@ def copy_density_files( key_path: str, user_name: str, host: str, cluster_sim_pa
         local_path = local_results_dir / folder
         local_path.mkdir(parents=True, exist_ok=True)
 
-        remote_file = (f"{user_name}@{host}:{cluster_sim_path}/{folder}/densF.dat")
-        local_file_path = local_path / "densF.dat"
+        for fname in ("densF.dat", "densF1.dat"):
+            remote_file = f"{user_name}@{host}:{cluster_sim_path}/{folder}/{fname}"
+            local_file_path = local_path / fname
 
-        result = _run_pscp( key_path=key_path, source=remote_file, dest=str(local_file_path),
-                           recursive=False)
-        # если очень хочется, можно проверять returncode и копить ошибки в список
-        # но для простоты: если сломалось — возвращаем первую ошибку
-        if result.returncode != 0:
-            return result.stderr or f"Chyba při kopírování densF.dat ze složky {folder}"
+            result = _run_pscp(
+                key_path=key_path,
+                source=remote_file,
+                dest=str(local_file_path),
+                recursive=False,
+            )
+
+            if result.returncode != 0:
+                # Если файла нет — игнорируем (по задаче это нормально).
+                err = (result.stderr or "").lower()
+                if ("no such file" in err) or ("not found" in err) or ("unable to open" in err):
+                    continue
+
+                return result.stderr or f"Chyba při kopírování {fname} ze složky {folder}"
 
     return None
 
@@ -142,7 +159,7 @@ def completeness_check(key_path: str, user_name: str, host: str, cluster_sim_pat
     
 
     for folder in folders:
-        # --- читаем nrun из box.in ---
+        # читаем nrun из box.in
         cmd_nrun = (
             f"cd {cluster_sim_path}/{folder} && "
             "grep 'variable nrun' box.in | awk '{print $4}'")
@@ -155,7 +172,7 @@ def completeness_check(key_path: str, user_name: str, host: str, cluster_sim_pat
         except ValueError:
             return [], f"Neplatná hodnota nrun v simulaci {folder}: {result_nrun.stdout!r}"
 
-        # --- ищем restart файлы, в случае ошибки программа возвращает 0 ---
+        # ищем restart файлы, в случае ошибки программа возвращает 0
         cmd_ls_restart = (
             f"cd {cluster_sim_path}/{folder} && ls run.restart.* 2>/dev/null || true")
         
@@ -202,17 +219,21 @@ def copy_densF_for_finish_sim(key_path: str, user_name: str, host: str, cluster_
             local_path = local_results_dir / folder
             local_path.mkdir(parents=True, exist_ok=True)
 
-            remote_file = f"{user_name}@{host}:{cluster_sim_path}/{folder}/densF.dat"
-            local_file_path = local_path / "densF.dat"
+            for fname in ("densF.dat", "densF1.dat"):
+                remote_file = f"{user_name}@{host}:{cluster_sim_path}/{folder}/{fname}"
+                local_file_path = local_path / fname
 
-            copy_result = _run_pscp(
-                key_path=key_path,
-                source=remote_file,
-                dest=str(local_file_path),
-                recursive=False,
-            )
-            if copy_result.returncode != 0:
-                return copy_result.stderr or f"Chyba při kopírování densF.dat ze složky {folder}"
+                copy_result = _run_pscp(
+                    key_path=key_path,
+                    source=remote_file,
+                    dest=str(local_file_path),
+                    recursive=False,
+                )
+                if copy_result.returncode != 0:
+                    err = (copy_result.stderr or "").lower()
+                    if ("no such file" in err) or ("not found" in err) or ("unable to open" in err):
+                        continue
+                    return copy_result.stderr or f"Chyba při kopírování {fname} ze složky {folder}"
     return None
 
 
@@ -238,37 +259,96 @@ def restart_simulation_on_cluster(key_path: str, user_name: str, host: str, clus
     if not queue:
         return "Pro vybraný node nebyla nalezena fronta (queue)."    
     
-    remote_sim_dir = Path(cluster_sim_path) / sim_name
+    remote_sim_dir = f"{user_name}@{host}:{cluster_sim_path}/{sim_name}"
     remote_sim_dir_str = str(remote_sim_dir)
     
-    mem_str = f"{int(mem_gb)}gb"
+    
+    # костыли
+    sim_name = sim_name.strip()
+    cluster_sim_path = cluster_sim_path.strip()
+
+    remote_dir = PurePosixPath(cluster_sim_path) / sim_name
+    remote_dir_str = remote_dir.as_posix()   # всегда с /
+    
+    nrun_cont = int(expected_nrun)- int(last_step)
+    # 1) stahnout box.in
+    tmpdir = Path(tempfile.mkdtemp(prefix="sim_restart_"))
+    local_box = tmpdir / "box.in"
+    local_restart = tmpdir / "restart.in"    
+
+    remote_box = f"{user_name}@{host}:{remote_dir_str}/box.in"
+    get_res = _run_pscp(key_path=key_path, source=remote_box, dest=str(local_box), recursive=False)
+    if get_res.returncode != 0:
+        return get_res.stderr or "Chyba při stahování box.in"
+    
+    # 2) lokálně vyrobit restart.in
+    box_text = local_box.read_text(encoding="utf-8", errors="replace")
+    rstfile = f"run.restart.{last_step}"
+    restart_text = make_restart_in_from_box(box_text=box_text, rstfile=rstfile, nrun_cont=nrun_cont)
+    local_restart.write_text(restart_text, encoding="utf-8")
+    
+    # 3) nahrát restart.in na cluster
+    remote_restart = f"{user_name}@{host}:{remote_dir_str}/restart.in"
+    put_res = _run_pscp(key_path=key_path, source=str(local_restart), dest=remote_restart, recursive=False)
+    if put_res.returncode != 0:
+        return put_res.stderr or "Chyba při nahrávání restart.in"
+
+    # 4) na clustru: kopie + sed úpravy
+    remote_cmd = " && ".join([
+        f'cd "{remote_dir_str}"',
+
+        'if [ ! -f run.sh ]; then echo "run.sh not found"; exit 1; fi',
+        'if [ ! -f submit_job.sh ]; then echo "submit_job.sh not found"; exit 1; fi',
+
+        # run.sh -> run_restart.sh + box.in -> restart.in
+        'cp -f run.sh run_restart.sh',
+        r"sed -i 's/-in[[:space:]]\+box\.in/-in restart.in/g' run_restart.sh",
+
+        # submit_job.sh -> submit_restart.sh + run.sh -> run_restart.sh
+        'cp -f submit_job.sh submit_restart.sh',
+        r"sed -i 's/run\.sh/run_restart.sh/g' submit_restart.sh",
+
+        # запустить submit_restart.sh
+        'chmod +x submit_restart.sh',
+        './submit_restart.sh',
+    ])
+
+    res = _run_plink(key_path=key_path, user_name=user_name, host=host, command=remote_cmd)
+    if res.returncode != 0:
+        msg = res.stderr.strip() or res.stdout.strip() or "neznámá chyba"
+        return f"Chyba při přípravě restart souborů na clustru:\n{msg}"
+
+    return None            
+    
+    # mem_str = f"{int(mem_gb)}gb"
 
 
-    # Команда, которая выполняется на кластере
-    remote_cmd_parts = [
-        f'cd "{remote_sim_dir_str}"',
-        'if [ ! -f run.sh ]; then echo "run.sh nenalezen"; exit 1; fi',
-        # обновляем узел + ppn
-        f"sed -i 's/^#PBS -l nodes=.*/#PBS -l nodes={node}:ppn={ppn}/' run.sh",
-        # очередь
-        f"sed -i 's/^#PBS -q .*/#PBS -q {queue}/' run.sh",
-        # память
-        f"sed -i 's/^#PBS -l mem=.*/#PBS -l mem={mem_str}/' run.sh",
-        # запуск задания
-        "qsub run.sh",
-    ]
+    # # Команда, которая выполняется на кластере
+    # remote_cmd_parts = [
+    #     f'cd "{remote_sim_dir_str}"',
+    #     'if [ ! -f run.sh ]; then echo "run.sh nenalezen"; exit 1; fi',
+    #     # обновляем узел + ppn
+    #     f"sed -i 's/^#PBS -l nodes=.*/#PBS -l nodes={node}:ppn={ppn}/' run.sh",
+    #     # очередь
+    #     f"sed -i 's/^#PBS -q .*/#PBS -q {queue}/' run.sh",
+    #     # память
+    #     f"sed -i 's/^#PBS -l mem=.*/#PBS -l mem={mem_str}/' run.sh",
+    #     # запуск задания
+    #     "qsub run.sh",
+    # ]
     
-    remote_cmd = " && ".join(remote_cmd_parts)
+    # remote_cmd = " && ".join(remote_cmd_parts)
     
-    result = _run_plink(
-        key_path=key_path,
-        user_name=user_name,
-        host=host,
-        command=remote_cmd,
-    )        
+    # result = _run_plink(
+    #     key_path=key_path,
+    #     user_name=user_name,
+    #     host=host,
+    #     command=remote_cmd,
+    # )        
     
-    if result.returncode != 0:
-        msg = result.stderr.strip() or result.stdout.strip() or "neznámá chyba"
-        return f"Chyba při spouštění restartu na clustru:\n{msg}"
+    # if result.returncode != 0:
+    #     msg = result.stderr.strip() or result.stdout.strip() or "neznámá chyba"
+    #     return f"Chyba při spouštění restartu na clustru:\n{msg}"
     
-    return None
+    # return None
+

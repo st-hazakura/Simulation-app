@@ -22,13 +22,14 @@ variable rcutLJ22    equal     1.3469544580   # W-W LJ Cut-off
 variable rcutLJ12    equal     1.2347082531   # f-W LJ Cut-off
 
 variable dt0         equal     1.0e-4         # Time Step (Relax)
-variable dt          equal     2.0e-3         # Time Step
+variable dt          equal     2.0e-5         # Time Step
 variable binLJ       equal     0.3            # LJ bin
 variable rcut        equal     2.5            # LJ Cut-off
 
 variable seed        equal     58531416       # Random # Seed
 
 variable wBin        equal     0.25           # Bin Width
+variable wBin1       equal     0.01
 
 variable nthermo     equal     50000          # Thermo Output
 
@@ -127,6 +128,9 @@ dump		     dumpfluid fluid custom ${ndump1} dumpWCA.cs id type x y z
 # Density Profiles
 compute          binF   fluid  chunk/atom  bin/1d  z center ${wBin} units box
 fix              densF  fluid  ave/chunk   ${navg1} ${navg2} ${navg3} binF  density/number ave running file densF.dat
+
+compute          binF1  fluid  chunk/atom  bin/1d  z center ${wBin1} units box
+fix              densF1 fluid  ave/chunk   ${navg1} ${navg2} ${navg3} binF1  density/number ave running file densF1.dat
 
 restart          ${nrestart} run.restart
 

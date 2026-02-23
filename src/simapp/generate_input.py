@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  #  Меняет пути поиска МОДУЛЕЙ .../src
 from core.config_loader import load_config
-from core.particle_generator import generate_particles
+from core.new_particle_generator import generate_particles
 from core.boxin_modifier import modify_boxin
 from core.density_check import check_density
 import shutil

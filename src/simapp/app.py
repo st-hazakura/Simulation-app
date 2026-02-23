@@ -140,12 +140,23 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.config[key] = widget.text()
             elif isinstance(widget, QtWidgets.QSpinBox):
                 self.config[key] = widget.value()
+            elif isinstance(widget, QtWidgets.QComboBox):
+                self.config[key] = widget.currentText()
+                
         user_text = self.simulation_name.text()
         fluid_gap = int(self.fluid_gap.value())
         rho_fluid = str(self.rho_fluid.value())
         rho_fluid = int(rho_fluid.split('.')[1])
         self.config["simulation_name"] = f"{user_text}_H{fluid_gap}_rho0_{rho_fluid}"
         self.config["Lz"] = fluid_gap+14
+        
+        # box.in шаблон: выбираем по типу симуляции (WCA/LJ vs ABP)
+        pot = self.potential_type.currentText().strip().upper()
+        if pot == "ABP":
+            self.config["box_template"] = "box_template_ABP.in"
+        if pot == "WCA" or pot == "LJ":
+            # и для WCA, и для LJ используем один и тот же WCA/LJ шаблон
+            self.config["box_template"] = "box_template_WCA.in"        
 
 
         with open(self.param_path, "w") as f:
@@ -324,7 +335,7 @@ class MainWindow(QtWidgets.QMainWindow):
             error2 = cluster_service.copy_densF_for_finish_sim( key_path=self.key_path, user_name=self.user_name,
                             host=self.host, cluster_sim_path=self.cluster_sim_path, isfinished=isfinished, local_results_dir=Path(self.results_dir))
             if error2 is not None:
-                QtWidgets.QMessageBox.critical(self, "Chyba", error)
+                QtWidgets.QMessageBox.critical(self, "Chyba", error2)
 
 
     def check_restart_and_restart(self):
@@ -415,23 +426,17 @@ class MainWindow(QtWidgets.QMainWindow):
         sig12 = float(self.sig12.value())
         sig22 = float(self.sig22.value())
 
-        if pot.startswith("wca"):
+        if pot.startswith("wca") or pot.startswith("abp"):
             # WCA: r_cut = 2^(1/6) * sigma
             factor = 2.0 ** (1.0 / 6.0)
             r11 = factor * sig11
             r12 = factor * sig12
             r22 = factor * sig22
-        else:
-            # Lennard-Jones
-            # r11 = 2.5 * sig11
-            # r12 = 2.5 * sig12
-            # r22 = 2.5 * sig22
-
-            # 2 varianta
+        elif pot.startswith("lj"):
             r11= 3.2
             r12= 3.2
             r22 = 3.2
-
+            
         return r11, r12, r22
     
     
